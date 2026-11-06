@@ -1,0 +1,11 @@
+# Copyright (c) HashiCorp, Inc.
+# SPDX-License-Identifier: MPL-2.0
+
+rules:
+  unpinned-uses:
+    config:
+      policies:
+        opentofu/scripts/.github/workflows/release.yml: ref-pin
+        opentofu/scripts/.github/workflows/sign.yml: ref-pin
+        opentofu/scripts/.github/workflows/trigger.yml: ref-pin
+        opentofu/scripts/.github/workflows/sync.yml: ref-pin
