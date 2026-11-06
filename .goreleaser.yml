@@ -1,6 +1,9 @@
 # Visit https://goreleaser.com for documentation on how to customize this
 # behavior.
 version: 2
+# Registries expect release artifacts named terraform-provider-<name>_*, which
+# differs from this repository name.
+project_name: terraform-provider-opencollective
 before:
   hooks:
     # this is just an example and not a requirement for provider building/publishing

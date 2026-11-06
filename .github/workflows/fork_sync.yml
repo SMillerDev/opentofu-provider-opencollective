@@ -5,7 +5,13 @@ on:
     - cron: '15 */4 * * *' # every 4 hours
   workflow_dispatch: # on button click
 
+permissions: {}
+
 jobs:
   sync:
+    permissions:
+      contents: read
+      actions: write
     uses: opentofu/scripts/.github/workflows/sync.yml@main
-    secrets: inherit
+    secrets:
+      GH_PAT: ${{ secrets.GITHUB_TOKEN }}

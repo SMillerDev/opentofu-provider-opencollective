@@ -5,55 +5,67 @@ package provider
 
 import (
 	"context"
-	"net/http"
+	"os"
 
-	"github.com/hashicorp/terraform-plugin-framework/action"
+	"github.com/SMillerDev/opentofu-provider-opencollective/internal/client"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
-	"github.com/hashicorp/terraform-plugin-framework/ephemeral"
-	"github.com/hashicorp/terraform-plugin-framework/function"
+	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/provider"
 	"github.com/hashicorp/terraform-plugin-framework/provider/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
-// Ensure ScaffoldingProvider satisfies various provider interfaces.
-var _ provider.Provider = &ScaffoldingProvider{}
-var _ provider.ProviderWithFunctions = &ScaffoldingProvider{}
-var _ provider.ProviderWithEphemeralResources = &ScaffoldingProvider{}
-var _ provider.ProviderWithActions = &ScaffoldingProvider{}
+const (
+	// EnvEndpoint overrides the GraphQL endpoint when not set in configuration.
+	EnvEndpoint = "OPENCOLLECTIVE_ENDPOINT"
+	// EnvPersonalToken supplies the personal token when not set in configuration.
+	EnvPersonalToken = "OPENCOLLECTIVE_PERSONAL_TOKEN"
+)
 
-// ScaffoldingProvider defines the provider implementation.
-type ScaffoldingProvider struct {
+// Ensure OpenCollectiveProvider satisfies various provider interfaces.
+var _ provider.Provider = &OpenCollectiveProvider{}
+
+// OpenCollectiveProvider defines the provider implementation.
+type OpenCollectiveProvider struct {
 	// version is set to the provider version on release, "dev" when the
 	// provider is built and ran locally, and "test" when running acceptance
 	// testing.
 	version string
 }
 
-// ScaffoldingProviderModel describes the provider data model.
-type ScaffoldingProviderModel struct {
-	Endpoint types.String `tfsdk:"endpoint"`
+// OpenCollectiveProviderModel describes the provider data model.
+type OpenCollectiveProviderModel struct {
+	Endpoint      types.String `tfsdk:"endpoint"`
+	PersonalToken types.String `tfsdk:"personal_token"`
 }
 
-func (p *ScaffoldingProvider) Metadata(ctx context.Context, req provider.MetadataRequest, resp *provider.MetadataResponse) {
-	resp.TypeName = "scaffolding"
+func (p *OpenCollectiveProvider) Metadata(ctx context.Context, req provider.MetadataRequest, resp *provider.MetadataResponse) {
+	resp.TypeName = "opencollective"
 	resp.Version = p.version
 }
 
-func (p *ScaffoldingProvider) Schema(ctx context.Context, req provider.SchemaRequest, resp *provider.SchemaResponse) {
+func (p *OpenCollectiveProvider) Schema(ctx context.Context, req provider.SchemaRequest, resp *provider.SchemaResponse) {
 	resp.Schema = schema.Schema{
 		Attributes: map[string]schema.Attribute{
 			"endpoint": schema.StringAttribute{
-				MarkdownDescription: "Example provider attribute",
-				Optional:            true,
+				MarkdownDescription: "Open Collective GraphQL API endpoint. Defaults to `" + client.DefaultEndpoint + "`. " +
+					"Can also be set with the `" + EnvEndpoint + "` environment variable.",
+				Optional: true,
+			},
+			"personal_token": schema.StringAttribute{
+				MarkdownDescription: "Open Collective personal token, sent as the `Personal-Token` header. " +
+					"Can also be set with the `" + EnvPersonalToken + "` environment variable. " +
+					"Unauthenticated requests are limited to public data.",
+				Optional:  true,
+				Sensitive: true,
 			},
 		},
 	}
 }
 
-func (p *ScaffoldingProvider) Configure(ctx context.Context, req provider.ConfigureRequest, resp *provider.ConfigureResponse) {
-	var data ScaffoldingProviderModel
+func (p *OpenCollectiveProvider) Configure(ctx context.Context, req provider.ConfigureRequest, resp *provider.ConfigureResponse) {
+	var data OpenCollectiveProviderModel
 
 	resp.Diagnostics.Append(req.Config.Get(ctx, &data)...)
 
@@ -61,48 +73,63 @@ func (p *ScaffoldingProvider) Configure(ctx context.Context, req provider.Config
 		return
 	}
 
-	// Configuration values are now available.
-	// if data.Endpoint.IsNull() { /* ... */ }
+	if data.Endpoint.IsUnknown() {
+		resp.Diagnostics.AddAttributeError(
+			path.Root("endpoint"),
+			"Unknown Open Collective API endpoint",
+			"The provider cannot create the Open Collective API client as there is an unknown configuration value for the endpoint. "+
+				"Either set the value statically in the configuration, or use the "+EnvEndpoint+" environment variable.",
+		)
+	}
 
-	// Example client configuration for data sources and resources
-	client := http.DefaultClient
-	resp.DataSourceData = client
-	resp.ResourceData = client
+	if data.PersonalToken.IsUnknown() {
+		resp.Diagnostics.AddAttributeError(
+			path.Root("personal_token"),
+			"Unknown Open Collective personal token",
+			"The provider cannot create the Open Collective API client as there is an unknown configuration value for the personal token. "+
+				"Either set the value statically in the configuration, or use the "+EnvPersonalToken+" environment variable.",
+		)
+	}
+
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	endpoint := os.Getenv(EnvEndpoint)
+	if !data.Endpoint.IsNull() {
+		endpoint = data.Endpoint.ValueString()
+	}
+
+	token := os.Getenv(EnvPersonalToken)
+	if !data.PersonalToken.IsNull() {
+		token = data.PersonalToken.ValueString()
+	}
+
+	c := client.New(endpoint,
+		client.WithToken(token),
+		client.WithUserAgent("opentofu-provider-opencollective/"+p.version),
+	)
+
+	resp.DataSourceData = c
+	resp.ResourceData = c
 }
 
-func (p *ScaffoldingProvider) Resources(ctx context.Context) []func() resource.Resource {
+func (p *OpenCollectiveProvider) Resources(ctx context.Context) []func() resource.Resource {
 	return []func() resource.Resource{
-		NewExampleResource,
+		NewCollectiveResource,
+		NewCollectiveMemberResource,
 	}
 }
 
-func (p *ScaffoldingProvider) EphemeralResources(ctx context.Context) []func() ephemeral.EphemeralResource {
-	return []func() ephemeral.EphemeralResource{
-		NewExampleEphemeralResource,
-	}
-}
-
-func (p *ScaffoldingProvider) DataSources(ctx context.Context) []func() datasource.DataSource {
+func (p *OpenCollectiveProvider) DataSources(ctx context.Context) []func() datasource.DataSource {
 	return []func() datasource.DataSource{
-		NewExampleDataSource,
-	}
-}
-
-func (p *ScaffoldingProvider) Functions(ctx context.Context) []func() function.Function {
-	return []func() function.Function{
-		NewExampleFunction,
-	}
-}
-
-func (p *ScaffoldingProvider) Actions(ctx context.Context) []func() action.Action {
-	return []func() action.Action{
-		NewExampleAction,
+		NewCollectiveDataSource,
 	}
 }
 
 func New(version string) func() provider.Provider {
 	return func() provider.Provider {
-		return &ScaffoldingProvider{
+		return &OpenCollectiveProvider{
 			version: version,
 		}
 	}
